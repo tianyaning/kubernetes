@@ -114,6 +114,9 @@ func (c *controller) Run(stopCh <-chan struct{}) {
 	r.clock = c.clock
 
 	c.reflectorMutex.Lock()
+	//controller的Run方法实例化一个Reflector对象，并将自己的reflector字段设置为这个对象，并调用对象的Run方法。
+	// Reflector也是k8s中的一个概念，作用在于通过List-Watch机制，与API Server连接，及时获取监听的k8s资源的变化。
+	// 这一步通过调用reflector的Run方法来实现。Informer正是通过这一机制，在自身被动传达API Server发送的通知的同时，也会主动向API Server获取资源变化。
 	c.reflector = r
 	c.reflectorMutex.Unlock()
 

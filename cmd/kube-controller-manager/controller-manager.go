@@ -30,9 +30,12 @@ import (
 	"k8s.io/kubernetes/cmd/kube-controller-manager/app"
 )
 
+//组件入口
 func main() {
+	//生成随机数
 	rand.Seed(time.Now().UnixNano())
 
+	//调用NewControllerManagerCommand方法
 	command := app.NewControllerManagerCommand()
 
 	// TODO: once we switch everything over to Cobra commands, we can go back to calling
@@ -42,6 +45,7 @@ func main() {
 	logs.InitLogs()
 	defer logs.FlushLogs()
 
+	//返回command是run方法，执行run方法
 	if err := command.Execute(); err != nil {
 		os.Exit(1)
 	}

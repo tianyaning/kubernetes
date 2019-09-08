@@ -98,6 +98,7 @@ type DeploymentController struct {
 
 // NewDeploymentController creates a new DeploymentController.
 func NewDeploymentController(dInformer appsinformers.DeploymentInformer, rsInformer appsinformers.ReplicaSetInformer, podInformer coreinformers.PodInformer, client clientset.Interface) (*DeploymentController, error) {
+	//（1）创建了一个Broadcaster，用于做kubernetes中event资源相关的处理。
 	eventBroadcaster := record.NewBroadcaster()
 	eventBroadcaster.StartLogging(klog.Infof)
 	eventBroadcaster.StartRecordingToSink(&v1core.EventSinkImpl{Interface: client.CoreV1().Events("")})
@@ -107,6 +108,10 @@ func NewDeploymentController(dInformer appsinformers.DeploymentInformer, rsInfor
 			return nil, err
 		}
 	}
+	//（2）创建DeploymentController
+	//我们知道，Deployment并不直接操作集群中的pod，而是通过操作ReplicaSet来间接操作pod，
+	// 因此我们可以看到，DeploymentController结构体中也包含rsControl这一字段，用于操作ReplicaSet。
+	// 而queue字段则维护了一个deployment的队列，用于将需要更新状态的deployment元素存入，后面会讲到。
 	dc := &DeploymentController{
 		client:        client,
 		eventRecorder: eventBroadcaster.NewRecorder(scheme.Scheme, v1.EventSource{Component: "deployment-controller"}),
@@ -117,6 +122,9 @@ func NewDeploymentController(dInformer appsinformers.DeploymentInformer, rsInfor
 		Recorder:   dc.eventRecorder,
 	}
 
+	//（3）添加回调函数
+	//Informer的AddEventHandler方法为deployment controller的所有informer添加了回调函数
+	// 对deployment和ReplicaSet的添加、更新、删除进行相应的处理。
 	dInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    dc.addDeployment,
 		UpdateFunc: dc.updateDeployment,

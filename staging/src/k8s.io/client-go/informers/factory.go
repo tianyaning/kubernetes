@@ -131,6 +131,9 @@ func (f *sharedInformerFactory) Start(stopCh <-chan struct{}) {
 
 	for informerType, informer := range f.informers {
 		if !f.startedInformers[informerType] {
+			//informer的Run方法。此方法根据informer的配置实例化一个client-go包中的controller对象（此controller非controller manager的controller），
+			//然后调用controller的Run方法。见k8s.io/client-go/tools/cache/controller.go 的Run方法
+			//～重点～启动Informer本质上是调用了controller的reflector的Run方法。
 			go informer.Run(stopCh)
 			f.startedInformers[informerType] = true
 		}

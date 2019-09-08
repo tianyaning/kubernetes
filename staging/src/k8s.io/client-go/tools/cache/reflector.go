@@ -118,6 +118,7 @@ var internalPackages = []string{"client-go/tools/cache/"}
 // Run will exit when stopCh is closed.
 func (r *Reflector) Run(stopCh <-chan struct{}) {
 	klog.V(3).Infof("Starting reflector %v (%s) from %s", r.expectedType, r.resyncPeriod, r.name)
+	//方法通过调用wait.Until，每过period时间段就执行一次ListAndWatch方法。
 	wait.Until(func() {
 		if err := r.ListAndWatch(stopCh); err != nil {
 			utilruntime.HandleError(err)
@@ -161,6 +162,7 @@ func (r *Reflector) ListAndWatch(stopCh <-chan struct{}) error {
 	// Explicitly set "0" as resource version - it's fine for the List()
 	// to be served from cache and potentially be delayed relative to
 	// etcd contents. Reflector framework will catch up via Watch() eventually.
+	//首先，用默认的ResourceVersion “0” 调用List方法，列出资源，并调用ListAccessor方法进行验证。
 	options := metav1.ListOptions{ResourceVersion: "0"}
 
 	if err := func() error {
@@ -203,6 +205,7 @@ func (r *Reflector) ListAndWatch(stopCh <-chan struct{}) error {
 		if err != nil {
 			return fmt.Errorf("%s: Unable to understand list result %#v: %v", r.name, list, err)
 		}
+		//其次，调用GetResourceVersion方法取得资源的实际的ResourceVersion，并调用syncWith方法进行同步。
 		resourceVersion = listMetaInterface.GetResourceVersion()
 		initTrace.Step("Resource version extracted")
 		items, err := meta.ExtractList(list)
@@ -224,6 +227,7 @@ func (r *Reflector) ListAndWatch(stopCh <-chan struct{}) error {
 	resyncerrc := make(chan error, 1)
 	cancelCh := make(chan struct{})
 	defer close(cancelCh)
+	//再次，用go func()后面的一大段代码处理reflector缓存的同步。
 	go func() {
 		resyncCh, cleanup := r.resyncChan()
 		defer func() {
@@ -249,6 +253,7 @@ func (r *Reflector) ListAndWatch(stopCh <-chan struct{}) error {
 		}
 	}()
 
+	//最后，在一个for循环里调用Watch方法，对资源的变化进行watch，并调用watchHandler方法对变化进行相应处理。
 	for {
 		// give the stopCh a chance to stop the loop, even in case of continue statements further down on errors
 		select {
@@ -290,6 +295,7 @@ func (r *Reflector) ListAndWatch(stopCh <-chan struct{}) error {
 			return nil
 		}
 
+		//
 		if err := r.watchHandler(w, &resourceVersion, resyncerrc, stopCh); err != nil {
 			if err != errorStopRequested {
 				switch {
@@ -314,6 +320,8 @@ func (r *Reflector) syncWith(items []runtime.Object, resourceVersion string) err
 }
 
 // watchHandler watches w and keeps *resourceVersion up to date.
+//这个方法中，最重要的是中间的case选择。对于watch到的结果，按照Added、Modified、Deleted分别调用Add、Update、Delete方法，在缓存中进行更新。
+//Informer的大致逻辑就是这样，通过list-watch机制，与API Server建立连接，监听资源的变化，在缓存中进行更新。
 func (r *Reflector) watchHandler(w watch.Interface, resourceVersion *string, errc chan error, stopCh <-chan struct{}) error {
 	start := r.clock.Now()
 	eventCount := 0

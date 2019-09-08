@@ -79,10 +79,13 @@ func startReplicaSetController(ctx ControllerContext) (http.Handler, bool, error
 	return nil, true, nil
 }
 
+//从Controller的启动函数看看。以deployment为例
+//从NewControllerInitializers中找到controllers["deployment"]=startDeploymentController
 func startDeploymentController(ctx ControllerContext) (http.Handler, bool, error) {
 	if !ctx.AvailableResources[schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}] {
 		return nil, false, nil
 	}
+	//方法调用了NewDeploymentController方法创建一个Deployment
 	dc, err := deployment.NewDeploymentController(
 		ctx.InformerFactory.Apps().V1().Deployments(),
 		ctx.InformerFactory.Apps().V1().ReplicaSets(),
@@ -92,6 +95,7 @@ func startDeploymentController(ctx ControllerContext) (http.Handler, bool, error
 	if err != nil {
 		return nil, true, fmt.Errorf("error creating Deployment controller: %v", err)
 	}
+	//通过GO协程调用Run方法运行Deployment
 	go dc.Run(int(ctx.ComponentConfig.DeploymentController.ConcurrentDeploymentSyncs), ctx.Stop)
 	return nil, true, nil
 }

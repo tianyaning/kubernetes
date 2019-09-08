@@ -89,14 +89,22 @@ const (
 )
 
 // NewControllerManagerCommand creates a *cobra.Command object with default parameters
+//方法返回值是一个cobra.Command类型的指针，cobra是一个Go语言的开源项目，用于在命令行中注册新命令。
+//基本结构就是注册一个cobra.Command类型的指针，然后调用Execute命令执行。
 func NewControllerManagerCommand() *cobra.Command {
+	//创建了一个使用默认配置的KubeControllerManagerOptions结构体
+	//包含DeploymentController、ReplicationController等多个controller的配置
 	s, err := options.NewKubeControllerManagerOptions()
 	if err != nil {
 		klog.Fatalf("unable to initialize command options: %v", err)
 	}
 
+	//注册一个cobra.Command类型的指针，在main函数中调用，来执行run方法
+	//cobra.Command是一个结构体，NewControllerManagerCommand方法里定义了最核心的Use、Long、Run三个字段：
 	cmd := &cobra.Command{
+		//Use是命令本身，即在命令行中输入kube-controller-manager，即可运行。
 		Use: "kube-controller-manager",
+		//Long是对命令的详细说明
 		Long: `The Kubernetes controller manager is a daemon that embeds
 the core control loops shipped with Kubernetes. In applications of robotics and
 automation, a control loop is a non-terminating loop that regulates the state of
@@ -105,16 +113,22 @@ state of the cluster through the apiserver and makes changes attempting to move 
 current state towards the desired state. Examples of controllers that ship with
 Kubernetes today are the replication controller, endpoints controller, namespace
 controller, and serviceaccounts controller.`,
+		//Run则是命令的具体执行内容
 		Run: func(cmd *cobra.Command, args []string) {
+			//处理打印版本和可用flag
 			verflag.PrintAndExitIfRequested()
 			utilflag.PrintFlags(cmd.Flags())
 
+			//利用第一行NewKubeControllerManagerOptions创建的KubeControllerManagerOptions结构体
+			// 在Command的Run字段中执行了Config和Run两个操作
+			//Config方法是配置集群的kubeconfig等基础配置
 			c, err := s.Config(KnownControllers(), ControllersDisabledByDefault.List())
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "%v\n", err)
 				os.Exit(1)
 			}
 
+			//将NewControllerInitializers中注册的controller加载上配置后，就是下面核心的Run方法了。
 			if err := Run(c.Complete(), wait.NeverStop); err != nil {
 				fmt.Fprintf(os.Stderr, "%v\n", err)
 				os.Exit(1)
@@ -122,6 +136,7 @@ controller, and serviceaccounts controller.`,
 		},
 	}
 
+	//下面是为kube-controller-manager命令配置flag
 	fs := cmd.Flags()
 	namedFlagSets := s.Flags(KnownControllers(), ControllersDisabledByDefault.List())
 	verflag.AddFlags(namedFlagSets.FlagSet("global"))
@@ -156,10 +171,13 @@ func ResyncPeriod(c *config.CompletedConfig) func() time.Duration {
 }
 
 // Run runs the KubeControllerManagerOptions.  This should never exit.
+//第一个参数调用Config的Complete方法，对config再进行一次包装
+// 第二个参数是一个单向channel，用于使方法阻塞，从而保持运行状态
 func Run(c *config.CompletedConfig, stopCh <-chan struct{}) error {
 	// To help debugging, immediately log version
 	klog.Infof("Version: %+v", version.Get())
 
+	//处理日志
 	if cfgz, err := configz.New(ConfigzName); err == nil {
 		cfgz.Set(c.ComponentConfig)
 	} else {
@@ -167,6 +185,7 @@ func Run(c *config.CompletedConfig, stopCh <-chan struct{}) error {
 	}
 
 	// Setup any healthz checks we will want to use.
+	//健康检查
 	var checks []healthz.HealthChecker
 	var electionChecker *leaderelection.HealthzAdaptor
 	if c.ComponentConfig.Generic.LeaderElection.LeaderElect {
@@ -175,6 +194,7 @@ func Run(c *config.CompletedConfig, stopCh <-chan struct{}) error {
 	}
 
 	// Start the controller manager HTTP server
+	//启动Controller Manager的HTTP server
 	// unsecuredMux is the handler for these controller *after* authn/authz filters have been applied
 	var unsecuredMux *mux.PathRecorderMux
 	if c.SecureServing != nil {
@@ -194,6 +214,7 @@ func Run(c *config.CompletedConfig, stopCh <-chan struct{}) error {
 		}
 	}
 
+	//重点在这里
 	run := func(ctx context.Context) {
 		rootClientBuilder := controller.SimpleControllerClientBuilder{
 			ClientConfig: c.Kubeconfig,
@@ -225,16 +246,21 @@ func Run(c *config.CompletedConfig, stopCh <-chan struct{}) error {
 		} else {
 			clientBuilder = rootClientBuilder
 		}
+		//首先调用CreateControllerContext方法，为controller的运行准备环境。
+		//方法创建了多个client，确保Controller Manager能连接上API Server，并返回一个ControllerContext结构体，为下面的controller使用。
 		controllerContext, err := CreateControllerContext(c, rootClientBuilder, clientBuilder, ctx.Done())
 		if err != nil {
 			klog.Fatalf("error building controller context: %v", err)
 		}
 		saTokenControllerInitFunc := serviceAccountTokenControllerStarter{rootClientBuilder: rootClientBuilder}.startServiceAccountTokenController
 
+		//调用StartControllers方法，开始正式运行controller～重点～
 		if err := StartControllers(controllerContext, saTokenControllerInitFunc, NewControllerInitializers(controllerContext.LoopMode), unsecuredMux); err != nil {
 			klog.Fatalf("error starting controllers: %v", err)
 		}
 
+		//将controller的informerfactory启动起来。每个controller都会启动自己的informer。
+		//这个informerfactory，顾名思义是创建informer的工厂，在CreateControllerContext中初始化。
 		controllerContext.InformerFactory.Start(controllerContext.Stop)
 		controllerContext.ObjectOrMetadataInformerFactory.Start(controllerContext.Stop)
 		close(controllerContext.InformersStarted)
@@ -242,6 +268,7 @@ func Run(c *config.CompletedConfig, stopCh <-chan struct{}) error {
 		select {}
 	}
 
+	//处理高可用controller-manager的节点选举相关的，暂时不提
 	if !c.ComponentConfig.Generic.LeaderElection.LeaderElect {
 		run(context.TODO())
 		panic("unreachable")
@@ -343,6 +370,7 @@ func (c ControllerContext) IsControllerEnabled(name string) bool {
 type InitFunc func(ctx ControllerContext) (debuggingHandler http.Handler, enabled bool, err error)
 
 // KnownControllers returns all known controllers's name
+//作用是将NewControllerInitializers方法中返回的Map的键生成一个lis
 func KnownControllers() []string {
 	ret := sets.StringKeySet(NewControllerInitializers(IncludeCloudLoops))
 
@@ -370,6 +398,9 @@ const (
 
 // NewControllerInitializers is a public map of named controller groups (you can start more than one in an init func)
 // paired to their InitFunc.  This allows for structured downstream composition and subdivision.
+//将controller-manager中的所有controller都注册了进来。
+// 每个controller都以名字为键，启动函数为值，存储在Map中。
+// 这个方法维护了controller-manager的元数据，是controller-manager的重要方法之一。
 func NewControllerInitializers(loopMode ControllerLoopMode) map[string]InitFunc {
 	controllers := map[string]InitFunc{}
 	controllers["endpoint"] = startEndpointController
@@ -446,8 +477,12 @@ func GetAvailableResources(clientBuilder controller.ControllerClientBuilder) (ma
 // CreateControllerContext creates a context struct containing references to resources needed by the
 // controllers such as the cloud provider and clientBuilder. rootClientBuilder is only used for
 // the shared-informers client and token controller.
+//方法创建了多个client，确保Controller Manager能连接上API Server，并返回一个ControllerContext结构体
 func CreateControllerContext(s *config.CompletedConfig, rootClientBuilder, clientBuilder controller.ControllerClientBuilder, stop <-chan struct{}) (ControllerContext, error) {
 	versionedClient := rootClientBuilder.ClientOrDie("shared-informers")
+	//初始化informerfactory，
+	// 事实上，这个factory目前还没有生成任何informer，在创建这个工厂实例时并没有为这个实例配置任何额外的参数。
+	// 直到后面分别启动每个Controller时，才会通过这个工厂生成具体的informer。
 	sharedInformers := informers.NewSharedInformerFactory(versionedClient, ResyncPeriod(s)())
 
 	metadataClient := metadata.NewForConfigOrDie(rootClientBuilder.ConfigOrDie("metadata-informers"))
@@ -495,9 +530,13 @@ func CreateControllerContext(s *config.CompletedConfig, rootClientBuilder, clien
 }
 
 // StartControllers starts a set of controllers with a specified ControllerContext
+//将之前保存在NewControllerInitializers中的controller全部运行起来
+//（除了特殊的ServiceAccountTokenController，它在前面的环境准备中先运行起来）
+// 方法是分别调用这些controller的启动函数。
 func StartControllers(ctx ControllerContext, startSATokenController InitFunc, controllers map[string]InitFunc, unsecuredMux *mux.PathRecorderMux) error {
 	// Always start the SA token controller first using a full-power client, since it needs to mint tokens for the rest
 	// If this fails, just return here and fail since other controllers won't be able to get credentials.
+	//ServiceAccount Token Controller 最先启动，因为后面所有的controller运行都需要使用SATokenController创建的token。
 	if _, _, err := startSATokenController(ctx); err != nil {
 		return err
 	}
@@ -508,6 +547,8 @@ func StartControllers(ctx ControllerContext, startSATokenController InitFunc, co
 		ctx.Cloud.Initialize(ctx.ClientBuilder, ctx.Stop)
 	}
 
+	//方法通过对controllers中每个元素执行各自的initFn来执行启动函数
+	// 因为每个Controller都是以[string]function的格式保存在map中的，所以直接执行自身的function即可。
 	for controllerName, initFn := range controllers {
 		if !ctx.IsControllerEnabled(controllerName) {
 			klog.Warningf("%q is disabled", controllerName)
