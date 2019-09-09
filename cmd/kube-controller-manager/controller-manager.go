@@ -30,7 +30,7 @@ import (
 	"k8s.io/kubernetes/cmd/kube-controller-manager/app"
 )
 
-//组件入口
+//kube-controller-manager组件入口
 func main() {
 	//生成随机数
 	rand.Seed(time.Now().UnixNano())
