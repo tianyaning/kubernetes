@@ -76,11 +76,15 @@ func NewFilteredDeploymentInformer(client kubernetes.Interface, namespace string
 	)
 }
 
+//defaultInformer方法则是调用了NewFilteredDeploymentInformer方法
 func (f *deploymentInformer) defaultInformer(client kubernetes.Interface, resyncPeriod time.Duration) cache.SharedIndexInformer {
+	//这个方法直接就返回了一个NewSharedIndexInformer结构体。
+	//可以看到，这个结构体内部，定义了这个Informer的List和Watch函数，与一般用户通过client-go连接API Server并无二致。
 	return NewFilteredDeploymentInformer(client, f.namespace, resyncPeriod, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, f.tweakListOptions)
 }
 
 func (f *deploymentInformer) Informer() cache.SharedIndexInformer {
+	//InformerFor方法比较直观，就是调用defaultInformer方法，将生成的informer存入factory的informer字段中。
 	return f.factory.InformerFor(&appsv1.Deployment{}, f.defaultInformer)
 }
 

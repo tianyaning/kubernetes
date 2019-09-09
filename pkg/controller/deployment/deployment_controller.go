@@ -97,6 +97,7 @@ type DeploymentController struct {
 }
 
 // NewDeploymentController creates a new DeploymentController.
+//在Deployment Controller中包含了deployment、replicaset、pod三个informer，都是各自的Informer()方法创建各自的informer。
 func NewDeploymentController(dInformer appsinformers.DeploymentInformer, rsInformer appsinformers.ReplicaSetInformer, podInformer coreinformers.PodInformer, client clientset.Interface) (*DeploymentController, error) {
 	//（1）创建了一个Broadcaster，用于做kubernetes中event资源相关的处理。
 	eventBroadcaster := record.NewBroadcaster()
@@ -125,6 +126,8 @@ func NewDeploymentController(dInformer appsinformers.DeploymentInformer, rsInfor
 	//（3）添加回调函数
 	//Informer的AddEventHandler方法为deployment controller的所有informer添加了回调函数
 	// 对deployment和ReplicaSet的添加、更新、删除进行相应的处理。
+	//dInformer.Informer()实际上是调用了InformerFor方法，k8s.io/client-go/informers/apps/v1/deployment.go
+	//AddEventHandler方法除了为Informer添加相应的回调函数外，还描述了这些回调函数如何被调用。
 	dInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    dc.addDeployment,
 		UpdateFunc: dc.updateDeployment,

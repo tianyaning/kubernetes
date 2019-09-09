@@ -374,6 +374,7 @@ func (s *sharedIndexInformer) GetController() Controller {
 	return &dummyController{informer: s}
 }
 
+//AddEventHandler方法只有一行，即调用AddEventHandlerWithResyncPeriod方法。
 func (s *sharedIndexInformer) AddEventHandler(handler ResourceEventHandler) {
 	s.AddEventHandlerWithResyncPeriod(handler, s.defaultEventHandlerResyncPeriod)
 }
@@ -439,8 +440,11 @@ func (s *sharedIndexInformer) AddEventHandlerWithResyncPeriod(handler ResourceEv
 	s.blockDeltas.Lock()
 	defer s.blockDeltas.Unlock()
 
+	//listener是informer用于获取缓存并处理的机制。通过调用addListener方法，为informer添加并运行listener。
+	//listener的添加和运行都通过addListener方法进行。
 	s.processor.addListener(listener)
 	for _, item := range s.indexer.List() {
+		//add方法只有一行，就是将参数传入listener的channel中。而参数则是通过informer的List方法，从informer的缓存中获得。
 		listener.add(addNotification{newObj: item})
 	}
 }
@@ -485,6 +489,7 @@ type sharedProcessor struct {
 	wg               wait.Group
 }
 
+//listener的添加和运行都通过addListener方法进行。
 func (p *sharedProcessor) addListener(listener *processorListener) {
 	p.listenersLock.Lock()
 	defer p.listenersLock.Unlock()
@@ -611,6 +616,9 @@ func (p *processorListener) add(notification interface{}) {
 	p.addCh <- notification
 }
 
+//pop方法用到好几个channel，本质上仍是从channel中取出一个notification，并通过run方法进行处理。
+//那么这些notification从何而来呢？
+// 答案是，通过listener的add方法添加，即AddEventHandlerWithResyncPeriod方法的最后一句：
 func (p *processorListener) pop() {
 	defer utilruntime.HandleCrash()
 	defer close(p.nextCh) // Tell .run() to stop
@@ -641,6 +649,13 @@ func (p *processorListener) pop() {
 	}
 }
 
+//可以看到，在run方法中有对于notification的类型选择，并分别调用OnUpdate、OnAdd、OnDelete方法进行处理，
+// 而这三个方法则分别调用了前面AddEventHandler方法中传进来的参数，
+/*
+	AddFunc:    dc.addDeployment,
+	UpdateFunc: dc.updateDeployment,
+	DeleteFunc: dc.deleteDeployment,
+*/
 func (p *processorListener) run() {
 	// this call blocks until the channel is closed.  When a panic happens during the notification
 	// we will catch it, **the offending item will be skipped!**, and after a short delay (one second)

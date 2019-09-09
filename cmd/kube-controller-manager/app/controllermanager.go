@@ -532,7 +532,7 @@ func CreateControllerContext(s *config.CompletedConfig, rootClientBuilder, clien
 // StartControllers starts a set of controllers with a specified ControllerContext
 //将之前保存在NewControllerInitializers中的controller全部运行起来
 //（除了特殊的ServiceAccountTokenController，它在前面的环境准备中先运行起来）
-// 方法是分别调用这些controller的启动函数。
+// 方法是分别调用这些controller的启动函数来启动所有的Controller
 func StartControllers(ctx ControllerContext, startSATokenController InitFunc, controllers map[string]InitFunc, unsecuredMux *mux.PathRecorderMux) error {
 	// Always start the SA token controller first using a full-power client, since it needs to mint tokens for the rest
 	// If this fails, just return here and fail since other controllers won't be able to get credentials.
