@@ -333,7 +333,9 @@ func startEndpointController(ctx ControllerContext) (http.Handler, bool, error) 
 
 func startReplicationController(ctx ControllerContext) (http.Handler, bool, error) {
 	go replicationcontroller.NewReplicationManager(
+		//调用sharedInformerFactory(client-go/informers/factory.go)的Core().V1().Pods()方法，将会构建PodInformer对象
 		ctx.InformerFactory.Core().V1().Pods(),
+		//调用sharedInformerFactory(client-go/informers/factory.go)的Core().V1().ReplicationControllers()方法，创建rcInformer；
 		ctx.InformerFactory.Core().V1().ReplicationControllers(),
 		ctx.ClientBuilder.ClientOrDie("replication-controller"),
 		replicationcontroller.BurstReplicas,

@@ -55,8 +55,10 @@ func NewPodInformer(client kubernetes.Interface, namespace string, resyncPeriod 
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
 func NewFilteredPodInformer(client kubernetes.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
+	//构建SharedIndexInformer；
 	return cache.NewSharedIndexInformer(
 		&cache.ListWatch{
+			//定义ListFunc和WatchFunc，构建ListerWatcher对象;
 			ListFunc: func(options metav1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)

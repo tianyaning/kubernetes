@@ -129,15 +129,19 @@ func NewBaseController(rsInformer appsinformers.ReplicaSetInformer, podInformer 
 		metrics.RegisterMetricAndTrackRateLimiterUsage(metricOwnerName, kubeClient.CoreV1().RESTClient().GetRateLimiter())
 	}
 
+	//构建ReplicaSetController对象
 	rsc := &ReplicaSetController{
 		GroupVersionKind: gvk,
 		kubeClient:       kubeClient,
-		podControl:       podControl,
-		burstReplicas:    burstReplicas,
-		expectations:     controller.NewUIDTrackingControllerExpectations(controller.NewControllerExpectations()),
-		queue:            workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), queueName),
+		//ReplicaSetController包括podControl，它定义了对Pod的操作，是由RealPodControl去调用apiserver完成创建实现；
+		podControl:    podControl,
+		burstReplicas: burstReplicas,
+		expectations:  controller.NewUIDTrackingControllerExpectations(controller.NewControllerExpectations()),
+		//ReplicaSetController包括queue，是worker queue，存放待处理的项；
+		queue: workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), queueName),
 	}
 
+	//构建NewReplicaSetInformer，并注册回调函数AddFunc、UpdateFunc、DeleteFunc；
 	rsInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    rsc.enqueueReplicaSet,
 		UpdateFunc: rsc.updateRS,
@@ -146,9 +150,11 @@ func NewBaseController(rsInformer appsinformers.ReplicaSetInformer, podInformer 
 		// way of achieving this is by performing a `stop` operation on the replica set.
 		DeleteFunc: rsc.enqueueReplicaSet,
 	})
+	//注册rsInformer的Lister
 	rsc.rsLister = rsInformer.Lister()
 	rsc.rsListerSynced = rsInformer.Informer().HasSynced
 
+	//调用podInformer.Informer().AddEventHandler，构建NewPodInformer，并注册相应的回调函数AddFunc、UpdateFunc、DeleteFunc；
 	podInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: rsc.addPod,
 		// This invokes the ReplicaSet for every pod change, eg: host assignment. Though this might seem like
@@ -157,9 +163,11 @@ func NewBaseController(rsInformer appsinformers.ReplicaSetInformer, podInformer 
 		UpdateFunc: rsc.updatePod,
 		DeleteFunc: rsc.deletePod,
 	})
+	//注册podInformer的Lister
 	rsc.podLister = podInformer.Lister()
 	rsc.podListerSynced = podInformer.Informer().HasSynced
 
+	//注册rsc.syncHandler；syncHandler负责pod与rc的同步，确保Pod副本数与rc规定的相同；
 	rsc.syncHandler = rsc.syncReplicaSet
 
 	return rsc
@@ -174,6 +182,7 @@ func (rsc *ReplicaSetController) SetEventRecorder(recorder record.EventRecorder)
 }
 
 // Run begins watching and syncing.
+//运行ReplicationManager
 func (rsc *ReplicaSetController) Run(workers int, stopCh <-chan struct{}) {
 	defer utilruntime.HandleCrash()
 	defer rsc.queue.ShutDown()
@@ -182,11 +191,14 @@ func (rsc *ReplicaSetController) Run(workers int, stopCh <-chan struct{}) {
 	klog.Infof("Starting %v controller", controllerName)
 	defer klog.Infof("Shutting down %v controller", controllerName)
 
+	//调用WaitForNamedCacheSync， 等待同步完成
 	if !cache.WaitForNamedCacheSync(rsc.Kind, stopCh, rsc.podListerSynced, rsc.rsListerSynced) {
 		return
 	}
 
 	for i := 0; i < workers; i++ {
+		//启动rsc.worker
+		// rsc.worker会调用rsc.syncHandler，syncHandler负责pod与rc的同步，确保Pod副本数与rc规定的相同；
 		go wait.Until(rsc.worker, time.Second, stopCh)
 	}
 
@@ -264,6 +276,7 @@ func (rsc *ReplicaSetController) addPod(obj interface{}) {
 
 	// If it has a ControllerRef, that's all that matters.
 	if controllerRef := metav1.GetControllerOf(pod); controllerRef != nil {
+		//首先会根据pod返回rc，当pod不属于任何rc时，则返回。
 		rs := rsc.resolveControllerRef(pod.Namespace, controllerRef)
 		if rs == nil {
 			return
@@ -273,7 +286,9 @@ func (rsc *ReplicaSetController) addPod(obj interface{}) {
 			return
 		}
 		klog.V(4).Infof("Pod %s created: %#v.", pod.Name, pod)
+		//找到rc以后，更新rm.expectations.CreationObserved这个rc的期望值，也就是假如一个rc有4个pod，现在检测到创建了一个pod，则会将这个rc的期望值减少，变为3。
 		rsc.expectations.CreationObserved(rsKey)
+		//然后将这个rc放入队列；
 		rsc.enqueueReplicaSet(rs)
 		return
 	}
@@ -408,6 +423,7 @@ func (rsc *ReplicaSetController) deletePod(obj interface{}) {
 }
 
 // obj could be an *apps.ReplicaSet, or a DeletionFinalStateUnknown marker item.
+//调用rsc.enqueueReplicaSet，将调用rsc.queue.Add；
 func (rsc *ReplicaSetController) enqueueReplicaSet(obj interface{}) {
 	key, err := controller.KeyFunc(obj)
 	if err != nil {

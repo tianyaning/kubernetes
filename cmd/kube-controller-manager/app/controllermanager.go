@@ -513,6 +513,7 @@ func CreateControllerContext(s *config.CompletedConfig, rootClientBuilder, clien
 		return ControllerContext{}, err
 	}
 
+	//初始化informerFactory
 	ctx := ControllerContext{
 		ClientBuilder:                   clientBuilder,
 		InformerFactory:                 sharedInformers,

@@ -408,6 +408,7 @@ func (f *DeltaFIFO) IsClosed() bool {
 //
 // Pop returns a 'Deltas', which has a complete list of all the things
 // that happened to the object (deltas) while it was sitting in the queue.
+//主要从DeltaFIFO取出object，然后调用HandleDeltas方法进行处理；
 func (f *DeltaFIFO) Pop(process PopProcessFunc) (interface{}, error) {
 	f.lock.Lock()
 	defer f.lock.Unlock()
@@ -427,12 +428,14 @@ func (f *DeltaFIFO) Pop(process PopProcessFunc) (interface{}, error) {
 		if f.initialPopulationCount > 0 {
 			f.initialPopulationCount--
 		}
+		//从DeltaFIFO取出object
 		item, ok := f.items[id]
 		if !ok {
 			// Item may have been deleted subsequently.
 			continue
 		}
 		delete(f.items, id)
+		//调用HandleDeltas方法进行处理
 		err := process(item)
 		if e, ok := err.(ErrRequeue); ok {
 			f.addIfNotPresent(id, item)

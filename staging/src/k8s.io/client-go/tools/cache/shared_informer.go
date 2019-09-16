@@ -126,6 +126,7 @@ type SharedInformer interface {
 	// AddEventHandler adds an event handler to the shared informer using the shared informer's resync
 	// period.  Events to a single handler are delivered sequentially, but there is no coordination
 	// between different handlers.
+	//这个函数的真正实现向下找，方法只有一行，即调用AddEventHandlerWithResyncPeriod方法。
 	AddEventHandler(handler ResourceEventHandler)
 	// AddEventHandlerWithResyncPeriod adds an event handler to the
 	// shared informer using the specified resync period.  The resync
@@ -228,6 +229,7 @@ func WaitForCacheSync(stopCh <-chan struct{}, cacheSyncs ...InformerSynced) bool
 	return true
 }
 
+//SharedIndexInformer中包含controller，processor，listerWatcher等
 type sharedIndexInformer struct {
 	indexer    Indexer
 	controller Controller
@@ -290,9 +292,11 @@ type deleteNotification struct {
 	oldObj interface{}
 }
 
+//sharedInformerFactory.Start会调用SharedIndexInformer.Run
 func (s *sharedIndexInformer) Run(stopCh <-chan struct{}) {
 	defer utilruntime.HandleCrash()
 
+	//调用NewDeltaFIFO，创建queue；
 	fifo := NewDeltaFIFO(MetaNamespaceKeyFunc, s.indexer)
 
 	cfg := &Config{
@@ -303,6 +307,7 @@ func (s *sharedIndexInformer) Run(stopCh <-chan struct{}) {
 		RetryOnError:     false,
 		ShouldResync:     s.processor.shouldResync,
 
+		//定义Deltas处理函数s.HandleDeltas
 		Process: s.HandleDeltas,
 	}
 
@@ -310,6 +315,7 @@ func (s *sharedIndexInformer) Run(stopCh <-chan struct{}) {
 		s.startedLock.Lock()
 		defer s.startedLock.Unlock()
 
+		//调用New(cfg)，构建sharedIndexInformer的controller；
 		s.controller = New(cfg)
 		s.controller.(*controller).clock = s.clock
 		s.started = true
@@ -320,7 +326,10 @@ func (s *sharedIndexInformer) Run(stopCh <-chan struct{}) {
 	var wg wait.Group
 	defer wg.Wait()              // Wait for Processor to stop
 	defer close(processorStopCh) // Tell Processor to stop
+
+	//调用s.cacheMutationDetector.Run，检查缓存对象是否变化；
 	wg.StartWithChannel(processorStopCh, s.cacheMutationDetector.Run)
+	//调用s.processor.run，将调用sharedProcessor.run，会调用Listener.run和Listener.pop，执行处理queue的函数；
 	wg.StartWithChannel(processorStopCh, s.processor.run)
 
 	defer func() {
@@ -328,6 +337,7 @@ func (s *sharedIndexInformer) Run(stopCh <-chan struct{}) {
 		defer s.startedLock.Unlock()
 		s.stopped = true // Don't want any new listeners
 	}()
+	//调用s.controller.Run，构建Reflector，进行对etcd的缓存；
 	s.controller.Run(stopCh)
 }
 
@@ -396,6 +406,9 @@ func determineResyncPeriod(desired, check time.Duration) time.Duration {
 
 const minimumResyncPeriod = 1 * time.Second
 
+//AddEventHandler如何注册回调函数？
+// 在AddEventHandler方法会将eventhandler包装成listener{handler}
+// 然后添加到sharedIndexInformer的processor.listeners中
 func (s *sharedIndexInformer) AddEventHandlerWithResyncPeriod(handler ResourceEventHandler, resyncPeriod time.Duration) {
 	s.startedLock.Lock()
 	defer s.startedLock.Unlock()
@@ -428,6 +441,7 @@ func (s *sharedIndexInformer) AddEventHandlerWithResyncPeriod(handler ResourceEv
 	listener := newProcessListener(handler, resyncPeriod, determineResyncPeriod(resyncPeriod, s.resyncCheckPeriod), s.clock.Now(), initialBufferSize)
 
 	if !s.started {
+		//注册回调函数
 		s.processor.addListener(listener)
 		return
 	}
@@ -449,6 +463,7 @@ func (s *sharedIndexInformer) AddEventHandlerWithResyncPeriod(handler ResourceEv
 	}
 }
 
+//处理DeltaFIFO的方法
 func (s *sharedIndexInformer) HandleDeltas(obj interface{}) error {
 	s.blockDeltas.Lock()
 	defer s.blockDeltas.Unlock()
@@ -463,6 +478,7 @@ func (s *sharedIndexInformer) HandleDeltas(obj interface{}) error {
 				if err := s.indexer.Update(d.Object); err != nil {
 					return err
 				}
+				//调用s.processor.distribute方法，将调用Listener.add，负责将watch的资源传到listener;
 				s.processor.distribute(updateNotification{oldObj: old, newObj: d.Object}, isSync)
 			} else {
 				if err := s.indexer.Add(d.Object); err != nil {
@@ -512,6 +528,7 @@ func (p *sharedProcessor) distribute(obj interface{}, sync bool) {
 
 	if sync {
 		for _, listener := range p.syncingListeners {
+			//调用Listener.add，负责将watch的资源传到listener
 			listener.add(obj)
 		}
 	} else {
@@ -612,6 +629,7 @@ func newProcessListener(handler ResourceEventHandler, requestedResyncPeriod, res
 	return ret
 }
 
+//listenser的add方法负责将notify装进pendingNotifications;
 func (p *processorListener) add(notification interface{}) {
 	p.addCh <- notification
 }
@@ -619,6 +637,7 @@ func (p *processorListener) add(notification interface{}) {
 //pop方法用到好几个channel，本质上仍是从channel中取出一个notification，并通过run方法进行处理。
 //那么这些notification从何而来呢？
 // 答案是，通过listener的add方法添加，即AddEventHandlerWithResyncPeriod方法的最后一句：
+//pop函数取出pendingNotifications的第一个notify,输出到nextCh channel;
 func (p *processorListener) pop() {
 	defer utilruntime.HandleCrash()
 	defer close(p.nextCh) // Tell .run() to stop
@@ -656,6 +675,8 @@ func (p *processorListener) pop() {
 	UpdateFunc: dc.updateDeployment,
 	DeleteFunc: dc.deleteDeployment,
 */
+//run函数则负责取出notify，然后根据notify的类型(增加、删除、更新)触发相应的处理函数，这些函数在ReplicaSetController注册，
+// 分别是：rsc.addPod、rsc.updatePod、rsc.deletePod、rsc.enqueueReplicaSet、rsc.updateRS、rsc.enqueueReplicaSet
 func (p *processorListener) run() {
 	// this call blocks until the channel is closed.  When a panic happens during the notification
 	// we will catch it, **the offending item will be skipped!**, and after a short delay (one second)

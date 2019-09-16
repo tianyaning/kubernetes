@@ -50,10 +50,16 @@ type ReplicationManager struct {
 
 // NewReplicationManager configures a replication manager with the specified event recorder
 func NewReplicationManager(podInformer coreinformers.PodInformer, rcInformer coreinformers.ReplicationControllerInformer, kubeClient clientset.Interface, burstReplicas int) *ReplicationManager {
+	//创建eventBroadcaster对象
 	eventBroadcaster := record.NewBroadcaster()
+	//调用eventBroadcaster.StartLogging，接收EventBroadcaster发送的event，输出到logging中；
 	eventBroadcaster.StartLogging(klog.Infof)
+
+	//调用 eventBroadcaster.StartRecordingToSink，event输出到EventSink，并调用eventBroadcaster.NewRecorder记录"replication-controller"的事件；
 	eventBroadcaster.StartRecordingToSink(&v1core.EventSinkImpl{Interface: kubeClient.CoreV1().Events("")})
+
 	return &ReplicationManager{
+		//调用NewBaseController方法
 		*replicaset.NewBaseController(informerAdapter{rcInformer}, podInformer, clientsetAdapter{kubeClient}, burstReplicas,
 			v1.SchemeGroupVersion.WithKind("ReplicationController"),
 			"replication_controller",
