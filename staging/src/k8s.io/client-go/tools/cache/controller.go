@@ -73,7 +73,11 @@ type ProcessFunc func(obj interface{}) error
 
 // Controller is a generic controller framework.
 type controller struct {
-	config         Config
+	//config维护链队列和对象操作映射(map[string]Deltas)，此处赋值为Config struct值对象
+	config Config
+
+	//reflector 利用resourceVersion机制衔接调用listerWatcher.List/Watch方法，
+	//从APIServer同步/解码对象到config.Queue.items(map[string]Deltas)中，此处赋值为Reflect struct指针对象。
 	reflector      *Reflector
 	reflectorMutex sync.RWMutex
 	clock          clock.Clock
@@ -157,6 +161,7 @@ func (c *controller) LastSyncResourceVersion() string {
 // ever being stoppable. Converting this whole package to use Context would
 // also be helpful.
 
+//传入config.Process成员，循环调用config.Queue.Pop方法。
 func (c *controller) processLoop() {
 	for {
 		//PopProcessFunc(c.config.Process)将前面HandleDeltas方法传递进去；

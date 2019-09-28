@@ -101,7 +101,9 @@ type DeltaFIFO struct {
 	// We depend on the property that items in the set are in
 	// the queue and vice versa, and that all Deltas in this
 	// map have at least one Delta.
+	//items:map[string]Deltas，存储对象和操作信息。
 	items map[string]Deltas
+	//queue: []string，简单的链队列
 	queue []string
 
 	// populated is true if the first batch of items inserted by Replace() has been populated
@@ -117,6 +119,7 @@ type DeltaFIFO struct {
 	// knownObjects list keys that are "known", for the
 	// purpose of figuring out which items have been deleted
 	// when Replace() or Delete() is called.
+	//knownObjects:实现KeyListerGetter接口，此处赋值为cache struct指针对象。
 	knownObjects KeyListerGetter
 
 	// Indication the queue is closed.
@@ -170,6 +173,8 @@ func (f *DeltaFIFO) HasSynced() bool {
 
 // Add inserts an item, and puts it in the queue. The item is only enqueued
 // if it doesn't already exist in the set.
+
+//调用queueActionLocked方法
 func (f *DeltaFIFO) Add(obj interface{}) error {
 	f.lock.Lock()
 	defer f.lock.Unlock()
@@ -178,6 +183,7 @@ func (f *DeltaFIFO) Add(obj interface{}) error {
 }
 
 // Update is just like Add, but makes an Updated Delta.
+//调用queueActionLocked方法
 func (f *DeltaFIFO) Update(obj interface{}) error {
 	f.lock.Lock()
 	defer f.lock.Unlock()
@@ -188,6 +194,7 @@ func (f *DeltaFIFO) Update(obj interface{}) error {
 // Delete is just like Add, but makes an Deleted Delta. If the item does not
 // already exist, it will be ignored. (It may have already been deleted by a
 // Replace (re-list), for example.
+//调用queueActionLocked方法
 func (f *DeltaFIFO) Delete(obj interface{}) error {
 	id, err := f.KeyOf(obj)
 	if err != nil {
@@ -409,6 +416,7 @@ func (f *DeltaFIFO) IsClosed() bool {
 // Pop returns a 'Deltas', which has a complete list of all the things
 // that happened to the object (deltas) while it was sitting in the queue.
 //主要从DeltaFIFO取出object，然后调用HandleDeltas方法进行处理；
+//从queue成员pop，调用config.Process方法。
 func (f *DeltaFIFO) Pop(process PopProcessFunc) (interface{}, error) {
 	f.lock.Lock()
 	defer f.lock.Unlock()
@@ -451,6 +459,7 @@ func (f *DeltaFIFO) Pop(process PopProcessFunc) (interface{}, error) {
 // 'f' takes ownership of the map, you should not reference the map again
 // after calling this function. f's queue is reset, too; upon return, it
 // will contain the items in the map, in no particular order.
+//调用queueActionLocked方法
 func (f *DeltaFIFO) Replace(list []interface{}, resourceVersion string) error {
 	f.lock.Lock()
 	defer f.lock.Unlock()

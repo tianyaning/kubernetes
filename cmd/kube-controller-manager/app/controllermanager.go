@@ -100,7 +100,7 @@ func NewControllerManagerCommand() *cobra.Command {
 	}
 
 	//注册一个cobra.Command类型的指针，在main函数中调用，来执行run方法
-	//cobra.Command是一个结构体，NewControllerManagerCommand方法里定义了最核心的Use、Long、Run三个字段：
+	//cobra.Command是一个结构体，NewControllerManagerCommand方法定义了最核心的Use、Long、Run三个字段：
 	cmd := &cobra.Command{
 		//Use是命令本身，即在命令行中输入kube-controller-manager，即可运行。
 		Use: "kube-controller-manager",
@@ -121,7 +121,9 @@ controller, and serviceaccounts controller.`,
 
 			//利用第一行NewKubeControllerManagerOptions创建的KubeControllerManagerOptions结构体
 			// 在Command的Run字段中执行了Config和Run两个操作
+
 			//Config方法是配置集群的kubeconfig等基础配置
+			//第一个参数KnownControllers(）作用是将NewControllerInitializers方法中返回的Map的键生成一个list。
 			c, err := s.Config(KnownControllers(), ControllersDisabledByDefault.List())
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "%v\n", err)
@@ -370,7 +372,7 @@ func (c ControllerContext) IsControllerEnabled(name string) bool {
 type InitFunc func(ctx ControllerContext) (debuggingHandler http.Handler, enabled bool, err error)
 
 // KnownControllers returns all known controllers's name
-//作用是将NewControllerInitializers方法中返回的Map的键生成一个lis
+//作用是将NewControllerInitializers方法中返回的Map的键生成一个list
 func KnownControllers() []string {
 	ret := sets.StringKeySet(NewControllerInitializers(IncludeCloudLoops))
 

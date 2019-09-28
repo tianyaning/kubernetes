@@ -51,8 +51,10 @@ type Reflector struct {
 	// The type of object we expect to place in the store.
 	expectedType reflect.Type
 	// The destination to sync up with the watch source
+	//store实现Store接口，此处赋值为DeltaFIFO struct指针对象。
 	store Store
 	// listerWatcher is used to perform lists and watches.
+	//listerWatcher实现ListerWatcher的List/Watch方法，从APIServer同步/解码对象，此处赋值为ListWatch struct指针变量。
 	listerWatcher ListerWatcher
 	// period controls timing between one watch ending and
 	// the beginning of the next one.
@@ -155,6 +157,9 @@ func (r *Reflector) resyncChan() (<-chan time.Time, func() bool) {
 // ListAndWatch first lists all items and get the resource version at the moment of call,
 // and then use the resource version to watch.
 // It returns error if ListAndWatch didn't even try to initialize watch.
+
+//调用listerWatcher成员的List/Watch方法，完成对象从APIServer的同步/解码，
+// 然后调用syncWith和watchHandler方法，把事件和对象同步到store的存储成员中。
 func (r *Reflector) ListAndWatch(stopCh <-chan struct{}) error {
 	klog.V(3).Infof("Listing and watching %v from %s", r.expectedType, r.name)
 	var resourceVersion string
@@ -311,6 +316,7 @@ func (r *Reflector) ListAndWatch(stopCh <-chan struct{}) error {
 }
 
 // syncWith replaces the store's items with the given list.
+//调用Store接口的Replace方法，同步事件和对象信息。
 func (r *Reflector) syncWith(items []runtime.Object, resourceVersion string) error {
 	found := make([]interface{}, 0, len(items))
 	for _, item := range items {
@@ -322,6 +328,7 @@ func (r *Reflector) syncWith(items []runtime.Object, resourceVersion string) err
 // watchHandler watches w and keeps *resourceVersion up to date.
 //这个方法中，最重要的是中间的case选择。对于watch到的结果，按照Added、Modified、Deleted分别调用Add、Update、Delete方法，在缓存中进行更新。
 //Informer的大致逻辑就是这样，通过list-watch机制，与API Server建立连接，监听资源的变化，在缓存中进行更新。
+//调用Store接口的Add/Update/Delete方法，同步事件和对象信息。
 func (r *Reflector) watchHandler(w watch.Interface, resourceVersion *string, errc chan error, stopCh <-chan struct{}) error {
 	start := r.clock.Now()
 	eventCount := 0

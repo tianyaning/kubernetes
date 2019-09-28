@@ -231,9 +231,13 @@ func WaitForCacheSync(stopCh <-chan struct{}, cacheSyncs ...InformerSynced) bool
 
 //SharedIndexInformer中包含controller，processor，listerWatcher等
 type sharedIndexInformer struct {
-	indexer    Indexer
+	//indexer实现Indexer接口，维护本地缓存(map[string]interface{})，此处赋值为cache struct指针变量
+	indexer Indexer
+
+	//实现Controller接口，维护APIServer到本地缓存的同步机制，同时保持与processor的通讯，此处赋值为controller struct指针对象。
 	controller Controller
 
+	//保持与controller的通讯，触发handler对应的方法，此处赋值为sharedProcessor struct 指针对象。
 	processor             *sharedProcessor
 	cacheMutationDetector MutationDetector
 
@@ -385,6 +389,7 @@ func (s *sharedIndexInformer) GetController() Controller {
 }
 
 //AddEventHandler方法只有一行，即调用AddEventHandlerWithResyncPeriod方法。
+//创建processorListener struct值对象，append到processor成员的listeners和syncinglisteners。
 func (s *sharedIndexInformer) AddEventHandler(handler ResourceEventHandler) {
 	s.AddEventHandlerWithResyncPeriod(handler, s.defaultEventHandlerResyncPeriod)
 }
@@ -464,6 +469,9 @@ func (s *sharedIndexInformer) AddEventHandlerWithResyncPeriod(handler ResourceEv
 }
 
 //处理DeltaFIFO的方法
+//迭代controller.config.Queue.items[key](Delta切片)，
+// 调用indexer.Add/Delete/Update更新本地缓存，同时调用processor.distribute方法，
+// 按需迭代processor的listeners和syncinglisteners，下发消息到listener的消息队列。
 func (s *sharedIndexInformer) HandleDeltas(obj interface{}) error {
 	s.blockDeltas.Lock()
 	defer s.blockDeltas.Unlock()
@@ -496,6 +504,7 @@ func (s *sharedIndexInformer) HandleDeltas(obj interface{}) error {
 	return nil
 }
 
+//sharedProcessor负责管理listener
 type sharedProcessor struct {
 	listenersStarted bool
 	listenersLock    sync.RWMutex
@@ -505,7 +514,7 @@ type sharedProcessor struct {
 	wg               wait.Group
 }
 
-//listener的添加和运行都通过addListener方法进行。
+//addListener在indexInformer启动的时候，注册回调函数时调用。
 func (p *sharedProcessor) addListener(listener *processorListener) {
 	p.listenersLock.Lock()
 	defer p.listenersLock.Unlock()
@@ -542,6 +551,7 @@ func (p *sharedProcessor) run(stopCh <-chan struct{}) {
 	func() {
 		p.listenersLock.RLock()
 		defer p.listenersLock.RUnlock()
+		//遍历p.listeners，调用listener.run 以及 listener.pop方法
 		for _, listener := range p.listeners {
 			p.wg.Start(listener.run)
 			p.wg.Start(listener.pop)
@@ -590,8 +600,11 @@ func (p *sharedProcessor) resyncCheckPeriodChanged(resyncCheckPeriod time.Durati
 }
 
 type processorListener struct {
+	//nextCh:从本地pendingNotifications或者addCh生产消息，run方法消费消息。
 	nextCh chan interface{}
-	addCh  chan interface{}
+
+	//addCh:从调用add方法生产消息，写入本地pendingNotifications或者传递给nextCh
+	addCh chan interface{}
 
 	handler ResourceEventHandler
 
@@ -600,6 +613,7 @@ type processorListener struct {
 	// added until we OOM.
 	// TODO: This is no worse than before, since reflectors were backed by unbounded DeltaFIFOs, but
 	// we should try to do something better.
+	//pendingNotifications: 维护本地缓冲消息，此处赋值为RingGrowing struct值对象。
 	pendingNotifications buffer.RingGrowing
 
 	// requestedResyncPeriod is how frequently the listener wants a full resync from the shared informer
